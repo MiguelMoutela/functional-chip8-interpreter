@@ -1,8 +1,10 @@
-package de.malax.chip8.opcode
+package de.malax.chip8.interpreters
+package opcode
 
-import de.malax.chip8.Register
+import de.malax.chip8.algebra.OpcodeParser
+import de.malax.chip8.model._
 
-object OpcodeParser {
+object OpcodeParserInterpreter extends OpcodeParser[Opcode] {
   def parse(opcode: Int): Option[Opcode] = {
     opcodeMappers.iterator.map(_(opcode)).find(_.isDefined).flatten
   }

@@ -1,18 +1,21 @@
-package de.malax.chip8.opcode
+package de.malax.chip8.interpreters.opcode
 
 import cats.Monad
 import cats.implicits._
-import de.malax.chip8._
-import de.malax.chip8.operations.MachineOperation
-import scodec.bits.ByteVector
-import de.malax.chip8.operations.MachineOperations.{readRegister, _}
+import de.malax.chip8.algebra.{Machine, OpcodeInterpreter}
+import de.malax.chip8.model._
 import de.malax.chip8.utils.Bcd
+import scodec.bits.ByteVector
 
-object OpcodeToMachineOperationMapper {
-  implicit def bool2int(b: Boolean) = if (b) 1 else 0
+import scala.language.{higherKinds, implicitConversions}
 
-  def map(opcode: Opcode): MachineOperation[Unit] = {
-    val m = Monad[MachineOperation]
+final class OpcodeInterpreterImpl[F[_]: Monad](
+    machine: Machine[F, ByteVector, Key, Register]) extends OpcodeInterpreter[F, Opcode] {
+  import machine._
+
+  implicit def bool2int(b: Boolean): Int = if (b) 1 else 0
+
+  def interpret(opcode: Opcode): F[Unit] = {
 
     opcode match {
       case ClearScreen =>
@@ -27,23 +30,27 @@ object OpcodeToMachineOperationMapper {
       case CallSubroutine(address) =>
         readPc.map(_ + 2).flatMap(pushStack).flatMap(_ => writePc(address))
 
-      case SkipIfEqual(register, byte) => readRegister(register) flatMap { value =>
-        incrementProgramCounter(if (value == byte) 4 else 2)
-      }
+      case SkipIfEqual(register, byte) =>
+        readRegister(register) flatMap { value =>
+          incrementProgramCounter(if (value == byte) 4 else 2)
+        }
 
-      case SkipIfNotEqual(register, byte) => readRegister(register) flatMap { value =>
-        incrementProgramCounter(if (value != byte) 4 else 2)
-      }
+      case SkipIfNotEqual(register, byte) =>
+        readRegister(register) flatMap { value =>
+          incrementProgramCounter(if (value != byte) 4 else 2)
+        }
 
-      case SkipIfEqualRegister(rA, rB) => readRegisters(rA, rB) { (a, b) =>
-        incrementProgramCounter(if (a == b) 4 else 2)
-      }
+      case SkipIfEqualRegister(rA, rB) =>
+        readRegisters(rA, rB) { (a, b) =>
+          incrementProgramCounter(if (a == b) 4 else 2)
+        }
 
       case LoadConstant(r, byte) =>
         withIncrementedPc(writeRegister(r, byte))
 
       case AddConstant(r, byte) =>
-        withIncrementedPc(readRegister(r).map(_ + byte % 0xFF).flatMap(writeRegister(r, _)))
+        withIncrementedPc(
+          readRegister(r).map(_ + byte % 0xFF).flatMap(writeRegister(r, _)))
 
       case LoadRegister(rA, rB) =>
         withIncrementedPc(readRegister(rA).flatMap(writeRegister(rB, _)))
@@ -118,7 +125,8 @@ object OpcodeToMachineOperationMapper {
         readRegister(VA).map(_ + address).flatMap(incrementProgramCounter)
 
       case GenerateRandom(r, mask) =>
-        withIncrementedPc(generateRandom.map(_ & mask).flatMap(writeRegister(r, _)))
+        withIncrementedPc(
+          generateRandom.map(_ & mask).flatMap(writeRegister(r, _)))
 
       case DrawSprite(rA, rB, sizeInBytes) =>
         withIncrementedPc(
@@ -126,9 +134,9 @@ object OpcodeToMachineOperationMapper {
             a <- readRegister(rA)
             b <- readRegister(rB)
             i <- readRegister(I)
-            byteList <- m.sequence(0.until(sizeInBytes).toList map { offset =>
+            byteList <- (0.until(sizeInBytes).toList map { offset =>
               readByte(i + offset)
-            })
+            }).sequence
             collision <- drawSprite(a, b, ByteVector(byteList: _*))
             _ <- writeRegister(VF, if (collision) 1 else 0)
           } yield ()
@@ -139,30 +147,36 @@ object OpcodeToMachineOperationMapper {
           key <- readRegister(r).map(Key.fromIndex(_).get)
           isKeyDown <- getKeyDown(key)
           _ <- incrementProgramCounter(if (isKeyDown) 4 else 2)
-        } yield()
+        } yield ()
 
       case SkipIfKeyNotPressed(r) =>
         for {
           key <- readRegister(r).map(Key.fromIndex(_).get)
           isKeyDown <- getKeyDown(key)
           _ <- incrementProgramCounter(if (!isKeyDown) 4 else 2)
-        } yield()
+        } yield ()
 
       case ReadTimerValue(r) =>
         withIncrementedPc(readRegister(DT).flatMap(writeRegister(r, _)))
 
       case LoadPressedKey(r) =>
-        val pressedKey = Key.all.foldLeft(m.pure[Option[Key]](None)) { (acc, key) =>
-          acc.map(_.isDefined).ifM(
-            acc,
-            getKeyDown(key).ifM(m.pure(Some(key)), m.pure(None))
-          )
+        val pressedKey = Key.all.foldLeft(Monad[F].pure[Option[Key]](None)) {
+          (acc, key) =>
+            acc
+              .map(_.isDefined)
+              .ifM(
+                acc,
+                getKeyDown(key).ifM(Monad[F].pure(Some(key)),
+                                    Monad[F].pure(None))
+              )
         }
 
-        pressedKey.map(_.isDefined).ifM(
-          withIncrementedPc(writeRegister(r, 0)),
-          m.unit
-        )
+        pressedKey
+          .map(_.isDefined)
+          .ifM(
+            withIncrementedPc(writeRegister(r, 0)),
+            Monad[F].unit
+          )
 
       case LoadTimer(r) =>
         withIncrementedPc(readRegister(r).flatMap(writeRegister(DT, _)))
@@ -176,7 +190,8 @@ object OpcodeToMachineOperationMapper {
         })
 
       case LoadSpriteAddressForDigit(r) =>
-        withIncrementedPc(readRegister(r).map(_ * 5).flatMap(writeRegister(I, _)))
+        withIncrementedPc(
+          readRegister(r).map(_ * 5).flatMap(writeRegister(I, _)))
 
       case BinaryCodedDecimal(r) =>
         withIncrementedPc(readRegisters(r, I) { (a, b) =>
@@ -194,7 +209,7 @@ object OpcodeToMachineOperationMapper {
         withIncrementedPc(
           for {
             address <- readRegister(I)
-            b <- m.sequence(registers.map(readRegister)).map(ByteVector(_: _*))
+            b <- registers.traverse(readRegister).map(ByteVector(_: _*))
             _ <- patchMemory(address, b)
             _ <- writeRegister(I, address + registers.length + 1)
           } yield ()
@@ -206,17 +221,17 @@ object OpcodeToMachineOperationMapper {
         withIncrementedPc(
           for {
             address <- readRegister(I)
-            _ <- m.sequence(registers.zipWithIndex map { kv =>
+            _ <- (registers.zipWithIndex map { kv =>
               val (r, index) = kv
               readByte(address + index).flatMap(writeRegister(r, _))
-            })
+            }).sequence
             _ <- writeRegister(I, address + registers.length + 1)
           } yield ()
         )
     }
   }
 
-  private def withIncrementedPc[A](machineOperation: MachineOperation[A]): MachineOperation[A] = {
+  private def withIncrementedPc[A](machineOperation: F[A]): F[A] = {
     for {
       result <- machineOperation
       pc <- readPc
@@ -224,7 +239,8 @@ object OpcodeToMachineOperationMapper {
     } yield result
   }
 
-  private def readRegisters[A](a: Register, b: Register)(f: (Int, Int) => MachineOperation[A]): MachineOperation[A] = {
+  private def readRegisters[A](a: Register, b: Register)(
+      f: (Int, Int) => F[A]): F[A] = {
     for {
       aValue <- readRegister(a)
       bValue <- readRegister(b)

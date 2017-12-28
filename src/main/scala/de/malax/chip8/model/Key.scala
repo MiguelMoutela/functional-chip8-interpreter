@@ -1,4 +1,4 @@
-package de.malax.chip8
+package de.malax.chip8.model
 
 sealed trait Key
 case object Key0 extends Key

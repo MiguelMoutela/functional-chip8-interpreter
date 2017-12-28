@@ -1,6 +1,7 @@
-package de.malax.chip8.opcode
+package de.malax.chip8.interpreters.opcode
 
-import de.malax.chip8.Register
+import de.malax.chip8.interpreters.VariablesToOpcodeMapper
+import de.malax.chip8.model.{Opcode, Register}
 
 object VariablesToOpcodeMapper {
   def valueOpcode(f: Int => Opcode, valueVariable: Char = 'n'): VariablesToOpcodeMapper = variables => Some(f(variables('n')))

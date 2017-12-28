@@ -1,4 +1,5 @@
-package de.malax.chip8
+package de.malax.chip8.model
+
 import scodec.bits._
 
 object Chip8Constants {

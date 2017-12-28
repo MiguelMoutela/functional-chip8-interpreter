@@ -14,5 +14,7 @@ lazy val root = (project in file(".")).
     libraryDependencies += "org.typelevel" %% "cats-effect" % "0.5",
     libraryDependencies += "org.scodec" %% "scodec-bits" % "1.1.5",
     libraryDependencies += "commons-io" % "commons-io" % "2.6",
-    scalacOptions += "-Ypartial-unification"
+    scalacOptions += "-Ypartial-unification",
+    scalacOptions += "-feature",
+    scalacOptions += "-Xfatal-warnings"
   )

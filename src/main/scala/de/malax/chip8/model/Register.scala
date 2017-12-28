@@ -1,4 +1,4 @@
-package de.malax.chip8
+package de.malax.chip8.model
 
 sealed trait Register
 case object V0 extends Register

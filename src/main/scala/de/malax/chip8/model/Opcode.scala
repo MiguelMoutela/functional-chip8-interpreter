@@ -1,6 +1,4 @@
-package de.malax.chip8.opcode
-
-import de.malax.chip8.Register
+package de.malax.chip8.model
 
 sealed trait Opcode
 

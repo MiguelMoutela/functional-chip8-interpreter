@@ -1,4 +1,7 @@
-package de.malax.chip8.compilers.swing;
+package de.malax.chip8.interpreters.ui;
+
+import java.awt.event.KeyEvent;
+import java.awt.event.KeyListener;
 
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;

@@ -1,39 +1,38 @@
 package de.malax.chip8
 
-import java.io.{File, FileInputStream}
-
-import cats._
-import de.malax.chip8.compilers.swing.SwingGuiCompiler
-import de.malax.chip8.operations.MachineOperation
-import de.malax.chip8.opcode.{OpcodeParser, OpcodeToMachineOperationMapper}
-import org.apache.commons.io.IOUtils
-import scodec.bits.ByteVector
-import de.malax.chip8.operations.MachineOperations._
+import cats.data.EitherT
+import cats.effect.IO
+import cats.implicits._
+import de.malax.chip8.interpreters._
+import de.malax.chip8.interpreters.opcode.{OpcodeInterpreterImpl, OpcodeParserInterpreter}
+import de.malax.chip8.interpreters.ui.UserInterfaceInterpreter
+import de.malax.chip8.model.MachineState
+import de.malax.chip8.programs.Programs
 
 object Main extends App {
-  val rom = args.headOption map { romFilePath =>
-    println(romFilePath)
-    ByteVector.apply(IOUtils.toByteArray(new FileInputStream(new File(romFilePath))))
-  } getOrElse {
-    println("Please give a path to a Chip-8 ROM as the first argument!")
-    sys.exit(-1)
+  val getFirstArg: ErrorOrIO[String] = EitherT {
+    IO {
+      args.head
+    }
+      .attempt
+      .map(_.leftMap(ex => new Throwable("Please give a path to a Chip-8 ROM as the first argument!", ex)))
   }
 
-  val machineOperationMonad = Monad[MachineOperation]
+  val ui = UserInterfaceInterpreter
+  val machineInterpreter = new MachineInterpreter(ui, SystemInterpreter)
+  val opcodeInterpreter = new OpcodeInterpreterImpl(machineInterpreter)
 
-  val cycle = for {
-    pc <- readPc
-    opcodeByte <- machineOperationMonad.map2(readByte(pc), readByte(pc + 1))((hi, lo) => hi << 8 | lo)
-    _ <- OpcodeParser.parse(opcodeByte).map(OpcodeToMachineOperationMapper.map).getOrElse(machineOperationMonad.unit)
-    powerState <- readPowerState
-  } yield powerState
+  val programs = new Programs(ui, machineInterpreter, OpcodeParserInterpreter, opcodeInterpreter)
 
-  val program = for {
-    _ <- patchMemory(0x200, rom)
-    _ <- machineOperationMonad.iterateUntil(cycle)(powerState => !powerState)
+  import FileSystemInterpreter._
+  import programs._
+
+  val runner = for {
+    romFilePath <- getFirstArg
+    rom <- getByteVector(romFilePath)
+    _ <- EitherT(program(rom).runA(MachineState.initial).attempt)
   } yield ()
 
-  program.foldMap(SwingGuiCompiler.compiler).unsafeRunSync()
-
-  println("Done!")
+  val result = runner.value.unsafeRunSync()
+  result.fold(ex => { println(ex); sys.exit(-1) }, _ => ())
 }
