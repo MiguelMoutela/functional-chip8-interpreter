@@ -27,7 +27,6 @@ final class Programs[F[_]: Monad,
       hi << 8 | lo)
     _ <- parse(opcodeByte).map(interpret).getOrElse(Monad[F].unit)
     powerState <- readPowerState
-    _ = println(powerState)
   } yield powerState
 
   def program(rom: ByteVector): F[Unit] =
